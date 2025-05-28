@@ -139,6 +139,7 @@ namespace MoneyTransferTests {
 ```
 
 ## .github/workflows/main.yml
+```
 name: CMake with Coverage
 
 on:
@@ -232,3 +233,4 @@ jobs:
         name: coverage-report
         path: _build/coverage
         retention-days: 7
+```
