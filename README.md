@@ -2,159 +2,233 @@
 
 Данная лабораторная работа посвещена изучению фреймворков для тестирования на примере **GTest**
 
-```sh
-$ open https://github.com/google/googletest
+## Создаем banking/CMakeLists.txt
 ```
-
-## Tasks
-
-- [ ] 1. Создать публичный репозиторий с названием **lab05** на сервисе **GitHub**
-- [ ] 2. Выполнить инструкцию учебного материала
-- [ ] 3. Ознакомиться со ссылками учебного материала
-- [ ] 4. Составить отчет и отправить ссылку личным сообщением в **Slack**
-
-## Tutorial
-
-```sh
-$ export GITHUB_USERNAME=<имя_пользователя>
-$ alias gsed=sed # for *-nix system
+cmake_minimum_required(VERSION 3.16.3)
+set(CMAKE_TRY_COMPILE_TARGET_TYPE "STATIC_LIBRARY")
+project(banking)
+set(CMAKE_CXX_STANDARD 11)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+add_library(banking STATIC
+Account.cpp
+Account.h 
+Transaction.cpp
+Transaction.h
+)
 ```
-
-```sh
-$ cd ${GITHUB_USERNAME}/workspace
-$ pushd .
-$ source scripts/activate
+## Создаем CMakeLists.txt (корневой)
 ```
+cmake_minimum_required(VERSION 3.5)
 
-```sh
-$ git clone https://github.com/${GITHUB_USERNAME}/lab04 projects/lab05
-$ cd projects/lab05
-$ git remote remove origin
-$ git remote add origin https://github.com/${GITHUB_USERNAME}/lab05
-```
+set(COVERAGE OFF CACHE BOOL "Coverage")
+set(CMAKE_CXX_COMPILER "/usr/bin/g++")
 
-```sh
-$ mkdir third-party
-$ git submodule add https://github.com/google/googletest third-party/gtest
-$ cd third-party/gtest && git checkout release-1.8.1 && cd ../..
-$ git add third-party/gtest
-$ git commit -m"added gtest framework"
-```
+project(TestRunning)
 
-```sh
-$ gsed -i '/option(BUILD_EXAMPLES "Build examples" OFF)/a\
-option(BUILD_TESTS "Build tests" OFF)
-' CMakeLists.txt
-$ cat >> CMakeLists.txt <<EOF
 
-if(BUILD_TESTS)
-  enable_testing()
-  add_subdirectory(third-party/gtest)
-  file(GLOB \${PROJECT_NAME}_TEST_SOURCES tests/*.cpp)
-  add_executable(check \${\${PROJECT_NAME}_TEST_SOURCES})
-  target_link_libraries(check \${PROJECT_NAME} gtest_main)
-  add_test(NAME check COMMAND check)
+add_subdirectory("${CMAKE_CURRENT_SOURCE_DIR}/googletest" "gtest")
+add_subdirectory("${CMAKE_CURRENT_SOURCE_DIR}/banking")
+add_executable(RunTest
+    ${CMAKE_CURRENT_SOURCE_DIR}/test.cpp
+)
+
+if(COVERAGE)
+    target_compile_options(RunTest PRIVATE --coverage)
+    target_link_libraries(RunTest PRIVATE --coverage)
 endif()
-EOF
+target_include_directories(RunTest PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/banking
+)
+target_link_libraries(RunTest PRIVATE
+    gtest
+    gtest_main
+    gmock_main
+    banking
+)
 ```
-
-```sh
-$ mkdir tests
-$ cat > tests/test1.cpp <<EOF
-#include <print.hpp>
-
+## Добавляем googletest
+```
+git submodule add https://github.com/google/googletest.git
+```
+## Создаем тестовый фалй
+test.cpp
+```
 #include <gtest/gtest.h>
+#include <gmock/gmock.h>
+#include <iostream>
+#include <Account.h>
+#include <Transaction.h>
 
-TEST(Print, InFileStream)
-{
-  std::string filepath = "file.txt";
-  std::string text = "hello";
-  std::ofstream out{filepath};
+using ::testing::_;
+using ::testing::Expectation;
 
-  print(text, out);
-  out.close();
+class MockBankAccount : public Account {
+public:
+    MockBankAccount(int account_id, int initial_balance) : Account(account_id, initial_balance) {}
+    
+    MOCK_METHOD(int, GetCurrentBalance, ());
+    MOCK_METHOD(void, UpdateBalance, (int amount));
+    MOCK_METHOD(int, GetAccountId, (), (const));
+    MOCK_METHOD(void, SecureLock, ());
+    MOCK_METHOD(void, SecureUnlock, ());
+};
 
-  std::string result;
-  std::ifstream in{filepath};
-  in >> result;
+class MockMoneyTransfer : public Transaction {
+public:
+    MOCK_METHOD(int, GetTransactionFee, ());
+    MOCK_METHOD(void, SetTransactionFee, (int fee_amount));
+    MOCK_METHOD(bool, ExecuteTransfer, (Account& sender, Account& recipient, int transfer_amount));
+};
 
-  EXPECT_EQ(result, text);
+namespace BankAccountTests {
+    TEST(BankAccountTest, ShouldThrowWhenAccountNotLocked) {
+        Account client_account(123, 500);
+        
+        EXPECT_THROW(client_account.ChangeBalance(100), std::runtime_error);
+        
+        client_account.Lock();
+        client_account.ChangeBalance(100);
+        EXPECT_EQ(client_account.GetBalance(), 600);
+        
+        EXPECT_THROW(client_account.Lock(), std::runtime_error);
+        client_account.Unlock();
+    }
+
+    TEST(BankAccountTest, ShouldHandleAccountOperations) {
+        MockBankAccount client_account(456, 1000);
+        
+        Expectation balance_check = EXPECT_CALL(client_account, GetCurrentBalance()).Times(3);
+        Expectation lock_op = EXPECT_CALL(client_account, SecureLock()).Times(1).After(balance_check);
+        Expectation unlock_op = EXPECT_CALL(client_account, SecureUnlock()).Times(1);
+        EXPECT_CALL(client_account, UpdateBalance(_)).Times(2);
+        EXPECT_CALL(client_account, GetAccountId()).Times(1);
+
+        client_account.GetCurrentBalance();
+        client_account.GetAccountId();
+        client_account.SecureUnlock();
+        client_account.UpdateBalance(500);
+        client_account.GetCurrentBalance();
+        client_account.UpdateBalance(-200);
+        client_account.GetCurrentBalance();
+        client_account.SecureLock();
+    }
 }
-EOF
+
+namespace MoneyTransferTests {
+    TEST(MoneyTransferTest, ShouldProcessFinancialTransaction) {
+        MockMoneyTransfer money_transfer;
+        MockBankAccount sender_account(1, 500);
+        MockBankAccount receiver_account(2, 300);
+        MockBankAccount company_account(3, 10000);
+        MockBankAccount charity_account(4, 2000);
+
+        EXPECT_CALL(money_transfer, GetTransactionFee()).Times(1);
+        EXPECT_CALL(money_transfer, SetTransactionFee(_)).Times(1);
+        EXPECT_CALL(money_transfer, ExecuteTransfer(_, _, _)).Times(2);
+        EXPECT_CALL(sender_account, GetCurrentBalance()).Times(1);
+        EXPECT_CALL(receiver_account, GetCurrentBalance()).Times(1);
+
+        money_transfer.SetTransactionFee(150);
+        money_transfer.ExecuteTransfer(sender_account, receiver_account, 2000);
+        money_transfer.GetTransactionFee();
+        sender_account.GetCurrentBalance();
+        receiver_account.GetCurrentBalance();
+        money_transfer.ExecuteTransfer(company_account, charity_account, 5000);
+    }
+}
 ```
 
-```sh
-$ cmake -H. -B_build -DBUILD_TESTS=ON
-$ cmake --build _build
-$ cmake --build _build --target test
-```
+## .github/workflows/main.yml
+name: CMake with Coverage
 
-```sh
-$ _build/check
-$ cmake --build _build --target test -- ARGS=--verbose
-```
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
 
-```sh
-$ gsed -i 's/lab04/lab05/g' README.md
-$ gsed -i 's/\(DCMAKE_INSTALL_PREFIX=_install\)/\1 -DBUILD_TESTS=ON/' .travis.yml
-$ gsed -i '/cmake --build _build --target install/a\
-- cmake --build _build --target test -- ARGS=--verbose
-' .travis.yml
-```
+env:
+  BUILD_TYPE: Release
+  COMPILER: g++-9
+  COVERAGE_TOOL: lcov
 
-```sh
-$ travis lint
-```
-
-```sh
-$ git add .travis.yml
-$ git add tests
-$ git add -p
-$ git commit -m"added tests"
-$ git push origin master
-```
-
-```sh
-$ travis login --auto
-$ travis enable
-```
-
-```sh
-$ mkdir artifacts
-$ sleep 20s && gnome-screenshot --file artifacts/screenshot.png
-# for macOS: $ screencapture -T 20 artifacts/screenshot.png
-# open https://github.com/${GITHUB_USERNAME}/lab05
-```
-
-## Report
-
-```sh
-$ popd
-$ export LAB_NUMBER=05
-$ git clone https://github.com/tp-labs/lab${LAB_NUMBER} tasks/lab${LAB_NUMBER}
-$ mkdir reports/lab${LAB_NUMBER}
-$ cp tasks/lab${LAB_NUMBER}/README.md reports/lab${LAB_NUMBER}/REPORT.md
-$ cd reports/lab${LAB_NUMBER}
-$ edit REPORT.md
-$ gist REPORT.md
-```
-
-## Homework
-
-### Задание
-1. Создайте `CMakeList.txt` для библиотеки *banking*.
-2. Создайте модульные тесты на классы `Transaction` и `Account`.
-    * Используйте mock-объекты.
-    * Покрытие кода должно составлять 100%.
-3. Настройте сборочную процедуру на **TravisCI**.
-4. Настройте [Coveralls.io](https://coveralls.io/).
-
-## Links
-
-- [C++ CI: Travis, CMake, GTest, Coveralls & Appveyor](http://david-grs.github.io/cpp-clang-travis-cmake-gtest-coveralls-appveyor/)
-- [Boost.Tests](http://www.boost.org/doc/libs/1_63_0/libs/test/doc/html/)
-- [Catch](https://github.com/catchorg/Catch2)
-
-```
-Copyright (c) 2015-2021 The ISC Authors
-```
+jobs:
+  build-and-test:
+    name: Build and Test with Coverage
+    runs-on: ubuntu-24.04
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      with:
+        submodules: recursive
+        
+    - name: Install dependencies
+      run: |
+        sudo apt-get update -qq
+        sudo apt-get install -y \
+          ${{env.COMPILER}} \
+          ${{env.COVERAGE_TOOL}} \
+          cmake \
+          make
+        
+    - name: Create and prepare build directory
+      run: |
+        mkdir -p _build
+        cd _build
+        
+    - name: Configure CMake
+      working-directory: _build
+      run: |
+        cmake \
+          -DCOVERAGE=ON \
+          -DCMAKE_BUILD_TYPE=${{env.BUILD_TYPE}} \
+          -DCMAKE_CXX_COMPILER=${{env.COMPILER}} \
+          ..
+        
+    - name: Build project
+      working-directory: _build
+      run: cmake --build . --config ${{env.BUILD_TYPE}} --verbose
+      
+    - name: Execute tests
+      working-directory: _build
+      run: ./RunTest
+      
+    - name: Generate coverage data
+      working-directory: _build
+      run: |
+        lcov --capture \
+          --directory . \
+          --output-file coverage.info \
+          --ignore-errors mismatch,unused \
+          --rc branch_coverage=1 \
+          --rc geninfo_unexecuted_blocks=1
+        
+    - name: Filter coverage results
+      working-directory: _build
+      run: |
+        lcov --remove coverage.info \
+          '/usr/*' \
+          '*/external/*' \
+          '*/test/*' \
+          '*/gtest/*' \
+          '*/gmock/*' \
+          --output-file filtered.info \
+          --ignore-errors unused
+        
+    - name: Generate HTML report
+      working-directory: _build
+      run: |
+        genhtml --branch-coverage \
+          --title "Test Coverage Report" \
+          --legend \
+          --output-directory coverage \
+          filtered.info \
+          --ignore-errors unmapped,unused
+        
+    - name: Upload coverage report
+      uses: actions/upload-artifact@v4
+      with:
+        name: coverage-report
+        path: _build/coverage
+        retention-days: 7
