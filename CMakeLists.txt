@@ -1,10 +1,11 @@
 cmake_minimum_required(VERSION 3.5)
 
-project(TestRunning LANGUAGES CXX)
+set(COVERAGE OFF CACHE BOOL "Coverage")
 set(CMAKE_CXX_COMPILER "/usr/bin/g++")
-set(CMAKE_CXX_STANDARD 11)
-set(CMAKE_CXX_STANDARD_REQUIRED ON)
-option(COVERAGE "Enable coverage reporting" OFF)
+
+project(TestRunning)
+
+
 add_subdirectory("${CMAKE_CURRENT_SOURCE_DIR}/googletest" "gtest")
 add_subdirectory("${CMAKE_CURRENT_SOURCE_DIR}/banking")
 add_executable(RunTest
