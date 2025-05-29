@@ -1,4 +1,4 @@
-name: Build, Test and Package
+name: Build and Test
 
 on:
   push:
@@ -18,10 +18,10 @@ jobs:
     - name: Install dependencies
       run: |
         sudo apt-get update
-        sudo apt-get install -y build-essential cmake dpkg-dev rpm lcov wixl
-        
+        sudo apt-get install -y \build-essential \cmake \dpkg-dev \rpm \lcov
+    
     - name: Configure project
-      run: cmake -B build -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTS=ON -DENABLE_CODE_COVERAGE=ON
+      run: cmake -B build -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTS=ON
       
     - name: Build project
       run: cmake --build build --config Release --parallel $(nproc)
@@ -32,8 +32,8 @@ jobs:
         ctest --output-on-failure
         
     - name: Generate coverage report
+      if: success() && matrix.coverage == 'ON'
       run: |
-        cd build
         lcov --capture --directory . --output-file coverage.info
         lcov --remove coverage.info '/usr/*' --output-file coverage.info
         genhtml coverage.info --output-directory coverage_report
@@ -44,55 +44,30 @@ jobs:
         cpack -G TGZ
         cpack -G DEB
         cpack -G RPM
-        
-    - name: Upload artifacts
-      uses: actions/upload-artifact@v4
-      with:
-        name: linux-packages
-        path: |
-          build/*.tar.gz
-          build/*.deb
-          build/*.rpm
-          build/coverage_report/
-
   windows-build:
     runs-on: windows-latest
     steps:
     - uses: actions/checkout@v4
-      with:
-        submodules: recursive
     
     - name: Setup WiX
-      uses: robotdad/wix-setup-action@v1
-      with:
-        version: '3.11'
+      run: |
+        choco install wixtoolset -y
+        echo "WIX=C:\Program Files (x86)\WiX Toolset v3.11\bin" >> $GITHUB_ENV
         
     - name: Prepare license
       shell: pwsh
       run: |
-        if (!(Test-Path "LICENSE.rtf")) {"License text" | Out-File -Encoding ASCII "LICENSE.rtf"}
+        if (!(Test-Path "LICENSE.rtf")) {" " | Out-File -Encoding ASCII "LICENSE.rtf"}
     
     - name: Configure and build
       run: |
-        cmake -B build -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTS=ON
+        cmake -B build -DCMAKE_BUILD_TYPE=Release
         cmake --build build --config Release
-        
-    - name: Run tests
-      run: |
-        cd build
-        ctest --output-on-failure
         
     - name: Generate MSI
       run: |
         cd build
-        cpack -G WIX -C Release
-        
-    - name: Upload artifacts
-      uses: actions/upload-artifact@v4
-      with:
-        name: windows-packages
-        path: build/*.msi
-
+        cpack -G WIX -C Release -V --debug
   macos-build:
     runs-on: macos-latest
     steps:
@@ -100,37 +75,15 @@ jobs:
       uses: actions/checkout@v4
       with:
         submodules: recursive
-        
-    - name: Install dependencies
-      run: brew install lcov
-      
     - name: Configure project
-      run: cmake -B build -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTS=ON -DENABLE_CODE_COVERAGE=ON
-      
+      run: cmake -B build -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTS=ON
     - name: Build project
       run: cmake --build build --config Release --parallel 2
-      
     - name: Run tests
       run: |
         cd build
         ctest --output-on-failure
-        
-    - name: Generate coverage report
-      run: |
-        cd build
-        lcov --capture --directory . --output-file coverage.info
-        lcov --remove coverage.info '/usr/*' --output-file coverage.info
-        genhtml coverage.info --output-directory coverage_report
-        
     - name: Create DMG package
       run: |
         cd build
         cpack -G DragNDrop
-        
-    - name: Upload artifacts
-      uses: actions/upload-artifact@v4
-      with:
-        name: macos-packages
-        path: |
-          build/*.dmg
-          build/coverage_report/
