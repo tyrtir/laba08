@@ -124,3 +124,30 @@ jobs:
         name: macos-packages
         path: build/*.dmg
         if-no-files-found: warn
+  docker-build:
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        submodules: recursive
+        
+    - name: Build Docker image
+      run: docker build -t banking-app .
+      
+    - name: Run tests in container
+      run: |
+        docker run --rm banking-app sh -c "cd /app/build && ./RunTest"
+        
+    - name: Extract coverage report
+      run: |
+        docker create --name banking-container banking-app
+        docker cp banking-container:/app/build/coverage_report ./docker_coverage
+        docker rm banking-container
+        
+    - name: Upload coverage report
+      uses: actions/upload-artifact@v4
+      with:
+        name: docker-coverage-report
+        path: ./docker_coverage
+        if-no-files-found: error
