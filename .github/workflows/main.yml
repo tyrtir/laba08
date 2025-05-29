@@ -18,7 +18,7 @@ jobs:
     - name: Install dependencies
       run: |
         sudo apt-get update
-        sudo apt-get install -y \build-essential \cmake \dpkg-dev \rpm \lcov
+        sudo apt-get install -y build-essential cmake dpkg-dev rpm lcov
     
     - name: Configure project
       run: cmake -B build -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTS=ON
@@ -44,6 +44,18 @@ jobs:
         cpack -G TGZ
         cpack -G DEB
         cpack -G RPM
+        
+    - name: List generated packages
+      run: |
+        ls -la build/*.{tgz,deb,rpm,tar.gz} || echo "No packages found"
+        
+    - name: Upload Linux packages
+      uses: actions/upload-artifact@v4
+      with:
+        name: linux-packages
+        path: build/*.{tgz,deb,rpm,tar.gz}
+        if-no-files-found: warn
+
   windows-build:
     runs-on: windows-latest
     steps:
@@ -68,6 +80,20 @@ jobs:
       run: |
         cd build
         cpack -G WIX -C Release -V --debug
+        
+    - name: List Windows packages
+      shell: pwsh
+      run: |
+        ls build/*.msi -File | % { $_.FullName }
+        if (!(Test-Path "build/*.msi")) { Write-Output "No MSI package found" }
+        
+    - name: Upload Windows packages
+      uses: actions/upload-artifact@v4
+      with:
+        name: windows-packages
+        path: build/*.msi
+        if-no-files-found: warn
+
   macos-build:
     runs-on: macos-latest
     steps:
@@ -87,3 +113,14 @@ jobs:
       run: |
         cd build
         cpack -G DragNDrop
+        
+    - name: List macOS packages
+      run: |
+        ls -la build/*.dmg || echo "No DMG package found"
+        
+    - name: Upload macOS packages
+      uses: actions/upload-artifact@v4
+      with:
+        name: macos-packages
+        path: build/*.dmg
+        if-no-files-found: warn
